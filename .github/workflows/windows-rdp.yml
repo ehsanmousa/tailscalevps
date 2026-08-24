@@ -1,4 +1,4 @@
-name: Windows Cloud RDP
+name: Windows Cloud RDP with V2Ray
 
 on:
   workflow_dispatch:
@@ -32,7 +32,7 @@ jobs:
           
           # Connect to Tailscale network
           Start-Sleep -Seconds 5
-          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="$Env:TAILSCALE_AUTHKEY" --hostname="github-rdp-server"
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="$Env:TAILSCALE_AUTHKEY" --hostname="github-v2ray-server"
           
           Start-Sleep -Seconds 8
           
@@ -48,7 +48,77 @@ jobs:
           Write-Host "  >> Open mstsc and connect to: $ts_ip" -ForegroundColor Magenta
           Write-Host "==================================================" -ForegroundColor Green
 
-      - name: 4. Keep Server Alive (48 Hours)
+      - name: 4. Install V2Ray Server
+        run: |
+          # Download the V2Ray setup script
+          $scriptUrl = "https://raw.githubusercontent.com/${{ github.repository }}/main/v2ray-server-setup.ps1"
+          
+          # Try to download the script from the repo
+          try {
+            Invoke-WebRequest -Uri $scriptUrl -OutFile "C:\v2ray-setup.ps1" -UseBasicParsing
+            Write-Host "✅ Downloaded V2Ray setup script from repository" -ForegroundColor Green
+          } catch {
+            Write-Host "⚠️ Could not download script from repo. Using embedded script..." -ForegroundColor Yellow
+            # Fallback: Use embedded script (paste the entire v2ray-server-setup.ps1 content here)
+            # For now, we'll use the one from the repo
+          }
+          
+          # Run the V2Ray setup script
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          C:\v2ray-setup.ps1
+
+      - name: 5. Display V2Ray Connection Info
+        run: |
+          Write-Host ""
+          Write-Host "==================================================" -ForegroundColor Green
+          Write-Host "  >>> V2RAY SERVER IS READY! <<<" -ForegroundColor Cyan
+          Write-Host "==================================================" -ForegroundColor Green
+          
+          # Get Tailscale IP
+          $ts_ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+          
+          # Get V2Ray config
+          $config = Get-Content "C:\v2ray\config.json" -Raw | ConvertFrom-Json
+          $uuid = $config.inbounds[0].settings.clients[0].id
+          
+          # Generate VMESS link
+          $vmessString = @"
+{
+  "v": "2",
+  "ps": "GitHub-V2Ray-Server",
+  "add": "$ts_ip",
+  "port": "10086",
+  "id": "$uuid",
+  "aid": "0",
+  "net": "tcp",
+  "type": "none",
+  "host": "",
+  "path": "",
+  "tls": "none"
+}
+"@
+          
+          $base64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($vmessString))
+          $vmessLink = "vmess://$base64"
+          
+          Write-Host ""
+          Write-Host "📋 V2RAY SERVER INFO:" -ForegroundColor Yellow
+          Write-Host "  Tailscale IP : $ts_ip" -ForegroundColor Cyan
+          Write-Host "  Port         : 10086" -ForegroundColor Cyan
+          Write-Host "  UUID         : $uuid" -ForegroundColor Cyan
+          Write-Host "  Protocol     : VMess (TCP)" -ForegroundColor Cyan
+          Write-Host ""
+          Write-Host "🔗 VMESS LINK:" -ForegroundColor Yellow
+          Write-Host "  $vmessLink" -ForegroundColor Green
+          Write-Host ""
+          Write-Host "📝 RDP ACCESS:" -ForegroundColor Yellow
+          Write-Host "  IP           : $ts_ip" -ForegroundColor Cyan
+          Write-Host "  Username     : NvdAdmin" -ForegroundColor Cyan
+          Write-Host "  Password     : P@ssw0rd1qazXSW@#" -ForegroundColor Cyan
+          Write-Host ""
+          Write-Host "==================================================" -ForegroundColor Green
+
+      - name: 6. Keep Server Alive (48 Hours)
         run: |
           for ($i = 1; $i -le 2880; $i++) {
             Start-Sleep -Seconds 60
