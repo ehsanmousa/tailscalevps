@@ -9,7 +9,6 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      # --- Step 0: Checkout repository to get the script ---
       - name: 0. Checkout Repository
         uses: actions/checkout@v4
 
@@ -36,7 +35,7 @@ jobs:
           & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="$Env:TAILSCALE_AUTHKEY" --hostname="github-v2ray-server"
           Start-Sleep -Seconds 8
           $ts_ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
-          
+
           Write-Host ""
           Write-Host "==================================================" -ForegroundColor Green
           Write-Host "  >>> RDP SERVER IS READY! <<<" -ForegroundColor Cyan
@@ -46,17 +45,14 @@ jobs:
           Write-Host "  >> Open mstsc and connect to: $ts_ip" -ForegroundColor Magenta
           Write-Host "==================================================" -ForegroundColor Green
 
-      # --- Step 4: Run V2Ray setup script from repository ---
       - name: 4. Install V2Ray Server
         run: |
-          # The script is already checked out from the repository
           if (Test-Path ".\v2ray-server-setup.ps1") {
-            Write-Host "✅ Found v2ray-server-setup.ps1 in repository" -ForegroundColor Green
+            Write-Host "Found v2ray-server-setup.ps1 in repository" -ForegroundColor Green
             Set-ExecutionPolicy Bypass -Scope Process -Force
             .\v2ray-server-setup.ps1
           } else {
-            Write-Host "❌ v2ray-server-setup.ps1 not found in repository!" -ForegroundColor Red
-            Write-Host "Make sure the script is in the repository root." -ForegroundColor Yellow
+            Write-Host "v2ray-server-setup.ps1 not found in repository!" -ForegroundColor Red
             exit 1
           }
 
@@ -66,11 +62,11 @@ jobs:
           Write-Host "==================================================" -ForegroundColor Green
           Write-Host "  >>> V2RAY SERVER IS READY! <<<" -ForegroundColor Cyan
           Write-Host "==================================================" -ForegroundColor Green
-          
+
           $ts_ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
           $config = Get-Content "C:\v2ray\config.json" -Raw | ConvertFrom-Json
           $uuid = $config.inbounds[0].settings.clients[0].id
-          
+
           $vmessString = @"
 {
   "v": "2",
@@ -86,10 +82,10 @@ jobs:
   "tls": "none"
 }
 "@
-          
+
           $base64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($vmessString))
           $vmessLink = "vmess://$base64"
-          
+
           @"
 V2RAY SERVER CONNECTION INFO
 ============================
@@ -142,10 +138,10 @@ Password: P@ssw0rd1qazXSW@#
       - name: 8. Keep Server Alive (48 Hours)
         run: |
           Write-Host ""
-          Write-Host "🔄 Server will run for 48 hours. Press Ctrl+C to stop early." -ForegroundColor Yellow
-          Write-Host "   RDP and V2Ray will remain available during this time." -ForegroundColor Cyan
+          Write-Host "Server will run for 48 hours." -ForegroundColor Yellow
+          Write-Host "RDP and V2Ray will remain available during this time." -ForegroundColor Cyan
           Write-Host ""
-          
+
           for ($i = 1; $i -le 2880; $i++) {
             Start-Sleep -Seconds 60
             if ($i % 30 -eq 0) {
