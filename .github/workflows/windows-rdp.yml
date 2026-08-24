@@ -9,6 +9,7 @@ jobs:
     timeout-minutes: 360
 
     steps:
+      # --- Step 0: Checkout repository to get the script ---
       - name: 0. Checkout Repository
         uses: actions/checkout@v4
 
@@ -29,17 +30,11 @@ jobs:
         env:
           TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
         run: |
-          # Download and install Tailscale silently
           Invoke-WebRequest "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile "C:\tailscale.msi"
           Start-Process msiexec -ArgumentList "/i C:\tailscale.msi /quiet /norestart" -Wait
-          
-          # Connect to Tailscale network
           Start-Sleep -Seconds 5
           & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="$Env:TAILSCALE_AUTHKEY" --hostname="github-v2ray-server"
-          
           Start-Sleep -Seconds 8
-          
-          # Get Tailscale IP
           $ts_ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
           
           Write-Host ""
@@ -51,16 +46,17 @@ jobs:
           Write-Host "  >> Open mstsc and connect to: $ts_ip" -ForegroundColor Magenta
           Write-Host "==================================================" -ForegroundColor Green
 
+      # --- Step 4: Run V2Ray setup script from repository ---
       - name: 4. Install V2Ray Server
         run: |
-          # Check if the script exists in the repository
+          # The script is already checked out from the repository
           if (Test-Path ".\v2ray-server-setup.ps1") {
             Write-Host "✅ Found v2ray-server-setup.ps1 in repository" -ForegroundColor Green
             Set-ExecutionPolicy Bypass -Scope Process -Force
             .\v2ray-server-setup.ps1
           } else {
             Write-Host "❌ v2ray-server-setup.ps1 not found in repository!" -ForegroundColor Red
-            Write-Host "Please add v2ray-server-setup.ps1 to the repository root." -ForegroundColor Yellow
+            Write-Host "Make sure the script is in the repository root." -ForegroundColor Yellow
             exit 1
           }
 
@@ -71,14 +67,10 @@ jobs:
           Write-Host "  >>> V2RAY SERVER IS READY! <<<" -ForegroundColor Cyan
           Write-Host "==================================================" -ForegroundColor Green
           
-          # Get Tailscale IP
           $ts_ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
-          
-          # Get V2Ray config
           $config = Get-Content "C:\v2ray\config.json" -Raw | ConvertFrom-Json
           $uuid = $config.inbounds[0].settings.clients[0].id
           
-          # Generate VMESS link
           $vmessString = @"
 {
   "v": "2",
@@ -98,7 +90,6 @@ jobs:
           $base64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($vmessString))
           $vmessLink = "vmess://$base64"
           
-          # Save connection info
           @"
 V2RAY SERVER CONNECTION INFO
 ============================
@@ -157,7 +148,6 @@ Password: P@ssw0rd1qazXSW@#
           
           for ($i = 1; $i -le 2880; $i++) {
             Start-Sleep -Seconds 60
-            # Show progress every 30 minutes
             if ($i % 30 -eq 0) {
               $hours = [math]::Round($i / 60, 1)
               Write-Host "[$i/2880] Server running for $hours hours..." -ForegroundColor Green
