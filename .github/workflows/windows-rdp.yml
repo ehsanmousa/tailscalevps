@@ -53,15 +53,18 @@ jobs:
           Write-Host "Creating V2Ray directory..." -ForegroundColor Yellow
           New-Item -ItemType Directory -Force -Path "C:\v2ray" | Out-Null
           Set-Location "C:\v2ray"
+
           Write-Host "Downloading V2Ray core..." -ForegroundColor Yellow
           $v2rayUrl = "https://github.com/v2fly/v2ray-core/releases/latest/download/v2ray-windows-64.zip"
           Invoke-WebRequest -Uri $v2rayUrl -OutFile "v2ray.zip" -UseBasicParsing
           Expand-Archive -Path "v2ray.zip" -DestinationPath "C:\v2ray" -Force
           Remove-Item "v2ray.zip" -Force
+
           Write-Host "Generating UUID..." -ForegroundColor Yellow
           $uuid = C:\v2ray\v2ray.exe uuid
           $uuid = $uuid.Trim()
-          Write-Host "Creating server configuration (VLESS)..." -ForegroundColor Yellow
+
+          Write-Host "Creating server configuration (VLESS + TLS)..." -ForegroundColor Yellow
           $config = '{
             "log": {
               "loglevel": "info"
@@ -78,7 +81,10 @@ jobs:
               },
               "streamSettings": {
                 "network": "tcp",
-                "security": "none"
+                "security": "tls",
+                "tlsSettings": {
+                  "allowInsecure": true
+                }
               }
             }],
             "outbounds": [{
@@ -87,9 +93,11 @@ jobs:
             }]
           }'
           [System.IO.File]::WriteAllText("C:\v2ray\config.json", $config, (New-Object System.Text.UTF8Encoding $false))
+
           Write-Host "Configuring Windows Firewall..." -ForegroundColor Yellow
           New-NetFirewallRule -DisplayName "V2Ray Inbound" -Direction Inbound -Protocol TCP -LocalPort 10086 -Action Allow -ErrorAction SilentlyContinue | Out-Null
           New-NetFirewallRule -DisplayName "V2Ray Tailscale" -Direction Inbound -Protocol TCP -LocalPort 10086 -RemoteAddress "100.64.0.0/10" -Action Allow -ErrorAction SilentlyContinue | Out-Null
+
           Write-Host "Creating auto-restart wrapper..." -ForegroundColor Yellow
           $wrapper = 'while ($true) {
               Write-Host "$(Get-Date) - Starting V2Ray..."
@@ -105,6 +113,7 @@ jobs:
               Start-Sleep -Seconds 5
           }'
           [System.IO.File]::WriteAllText("C:\v2ray\run.ps1", $wrapper, (New-Object System.Text.UTF8Encoding $false))
+
           Write-Host "Creating scheduled task..." -ForegroundColor Yellow
           Unregister-ScheduledTask -TaskName "V2RayWrapper" -Confirm:$false -ErrorAction SilentlyContinue
           $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\v2ray\run.ps1"
@@ -112,6 +121,7 @@ jobs:
           $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
           $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
           Register-ScheduledTask -TaskName "V2RayWrapper" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description "V2Ray Auto-Restart Wrapper" -Force | Out-Null
+
           Write-Host "Starting V2Ray..." -ForegroundColor Yellow
           Start-ScheduledTask -TaskName "V2RayWrapper"
           Start-Sleep -Seconds 8
@@ -131,24 +141,31 @@ jobs:
           if (-not $tailscaleIP) {
               $tailscaleIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -like "*Tailscale*" }).IPAddress
           }
-          $vlessLink = "vless://$uuid@$tailscaleIP`:10086?flow=xtls-rprx-vision&encryption=none&security=none&type=tcp#GitHub-V2Ray-Server"
-          $vlessLinkAlt = "vless://$uuid@$tailscaleIP`:10086?flow=xtls-rprx-vision&encryption=none&type=tcp#GitHub-V2Ray-Server"
+          
+          # Generate VLESS URI with TLS and xtls-rprx-vision flow
+          $vlessLink = "vless://$uuid@$tailscaleIP`:10086?flow=xtls-rprx-vision&encryption=none&security=tls&sni=www.microsoft.com&fp=chrome&type=tcp&allowInsecure=1#GitHub-V2Ray-Server"
+          
+          # Alternative format for clients that don't accept all parameters
+          $vlessLinkAlt = "vless://$uuid@$tailscaleIP`:10086?flow=xtls-rprx-vision&encryption=none&security=tls&type=tcp&allowInsecure=1#GitHub-V2Ray-Server"
+          
           echo "VLESS_LINK=$vlessLink" | Out-File -FilePath $env:GITHUB_ENV -Append
           echo "VLESS_LINK_ALT=$vlessLinkAlt" | Out-File -FilePath $env:GITHUB_ENV -Append
+          
           $vlessLink | Out-File -FilePath "C:\v2ray\vless-link.txt" -Encoding ascii
           $vlessLinkAlt | Out-File -FilePath "C:\v2ray\vless-link-alt.txt" -Encoding ascii
+          
           Write-Host ""
           Write-Host "==================================================" -ForegroundColor Green
-          Write-Host "  V2RAY (VLESS) SERVER IS READY!" -ForegroundColor Cyan
+          Write-Host "  V2RAY (VLESS + TLS) SERVER IS READY!" -ForegroundColor Cyan
           Write-Host "==================================================" -ForegroundColor Green
           Write-Host ""
-          Write-Host "  VLESS LINK (Try this first):" -ForegroundColor Yellow
+          Write-Host "  ✅ VLESS LINK (Try this first):" -ForegroundColor Yellow
           Write-Host "  $vlessLink" -ForegroundColor White
           Write-Host ""
-          Write-Host "  VLESS LINK (Alternative):" -ForegroundColor Yellow
+          Write-Host "  ✅ VLESS LINK (Alternative):" -ForegroundColor Yellow
           Write-Host "  $vlessLinkAlt" -ForegroundColor White
           Write-Host ""
-          Write-Host "  MANUAL CONFIGURATION:" -ForegroundColor Yellow
+          Write-Host "  📋 MANUAL CONFIGURATION:" -ForegroundColor Yellow
           Write-Host "  Address: $tailscaleIP" -ForegroundColor Cyan
           Write-Host "  Port: 10086" -ForegroundColor Cyan
           Write-Host "  UUID: $uuid" -ForegroundColor Cyan
@@ -156,8 +173,11 @@ jobs:
           Write-Host "  Flow: xtls-rprx-vision" -ForegroundColor Cyan
           Write-Host "  Encryption: none" -ForegroundColor Cyan
           Write-Host "  Network: tcp" -ForegroundColor Cyan
+          Write-Host "  Security: tls" -ForegroundColor Cyan
+          Write-Host "  Allow Insecure: true" -ForegroundColor Cyan
+          Write-Host "  SNI (if needed): www.microsoft.com" -ForegroundColor Cyan
           Write-Host ""
-          Write-Host "  RDP ACCESS:" -ForegroundColor Yellow
+          Write-Host "  💻 RDP ACCESS:" -ForegroundColor Yellow
           Write-Host "  IP: $tailscaleIP" -ForegroundColor Cyan
           Write-Host "  Username: NvdAdmin" -ForegroundColor Cyan
           Write-Host "  Password: P@ssw0rd1qazXSW@#" -ForegroundColor Cyan
@@ -178,16 +198,16 @@ jobs:
         run: |
           Write-Host ""
           Write-Host "==================================================" -ForegroundColor Cyan
-          Write-Host "  V2RAY (VLESS) SERVER FULLY OPERATIONAL!" -ForegroundColor Green
+          Write-Host "  V2RAY (VLESS + TLS) SERVER FULLY OPERATIONAL!" -ForegroundColor Green
           Write-Host "==================================================" -ForegroundColor Cyan
           Write-Host ""
-          Write-Host "  VLESS LINK (Copy this into your client):" -ForegroundColor Green
+          Write-Host "  ✅ VLESS LINK (Copy this into your client):" -ForegroundColor Green
           Write-Host "  ${{ env.VLESS_LINK }}" -ForegroundColor White
           Write-Host ""
-          Write-Host "  Alternative VLESS LINK:" -ForegroundColor Green
+          Write-Host "  ✅ Alternative VLESS LINK:" -ForegroundColor Green
           Write-Host "  ${{ env.VLESS_LINK_ALT }}" -ForegroundColor White
           Write-Host ""
-          Write-Host "  MANUAL CONFIGURATION:" -ForegroundColor Yellow
+          Write-Host "  📋 MANUAL CONFIGURATION:" -ForegroundColor Yellow
           Write-Host "  Server IP: ${{ env.TAILSCALE_IP }}" -ForegroundColor Cyan
           Write-Host "  UUID: ${{ env.UUID }}" -ForegroundColor Cyan
           Write-Host "  Port: 10086" -ForegroundColor Cyan
@@ -195,14 +215,16 @@ jobs:
           Write-Host "  Flow: xtls-rprx-vision" -ForegroundColor Cyan
           Write-Host "  Encryption: none" -ForegroundColor Cyan
           Write-Host "  Network: tcp" -ForegroundColor Cyan
-          Write-Host "  Security: none" -ForegroundColor Cyan
+          Write-Host "  Security: tls" -ForegroundColor Cyan
+          Write-Host "  Allow Insecure: true" -ForegroundColor Cyan
+          Write-Host "  SNI: www.microsoft.com" -ForegroundColor Cyan
           Write-Host ""
-          Write-Host "  RDP Access:" -ForegroundColor Yellow
+          Write-Host "  💻 RDP ACCESS:" -ForegroundColor Yellow
           Write-Host "     Username: NvdAdmin" -ForegroundColor Cyan
           Write-Host "     Password: P@ssw0rd1qazXSW@#" -ForegroundColor Cyan
           Write-Host ""
-          Write-Host "  Server will run for 48 hours" -ForegroundColor Yellow
-          Write-Host "  Config files in artifacts" -ForegroundColor Yellow
+          Write-Host "  ⏱️  Server will run for 48 hours" -ForegroundColor Yellow
+          Write-Host "  📁 Config files in artifacts" -ForegroundColor Yellow
           Write-Host ""
           Write-Host "==================================================" -ForegroundColor Cyan
 
@@ -220,9 +242,9 @@ jobs:
               Write-Host "[$hours/48h] Server running - $timestamp" -ForegroundColor Cyan
               $proc = Get-Process v2ray -ErrorAction SilentlyContinue
               if ($proc) {
-                  Write-Host "  V2Ray is running (PID: $($proc.Id))" -ForegroundColor Green
+                  Write-Host "  ✅ V2Ray is running (PID: $($proc.Id))" -ForegroundColor Green
               } else {
-                  Write-Host "  V2Ray is not running" -ForegroundColor Yellow
+                  Write-Host "  ⚠️ V2Ray is not running" -ForegroundColor Yellow
               }
             }
           }
