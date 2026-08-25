@@ -6,7 +6,7 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 480
+    timeout-minutes: 2880
 
     steps:
       - name: Enable Remote Desktop
@@ -64,7 +64,7 @@ jobs:
           $uuid = C:\v2ray\v2ray.exe uuid
           $uuid = $uuid.Trim()
 
-          Write-Host "Creating server configuration..." -ForegroundColor Yellow
+          Write-Host "Creating server configuration (VLESS)..." -ForegroundColor Yellow
           $config = '{
             "log": {
               "loglevel": "info"
@@ -75,11 +75,13 @@ jobs:
               "settings": {
                 "clients": [{
                   "id": "' + $uuid + '",
-                  "alterId": 0
-                }]
+                  "flow": "xtls-rprx-vision"
+                }],
+                "decryption": "none"
               },
               "streamSettings": {
-                "network": "tcp"
+                "network": "tcp",
+                "security": "none"
               }
             }],
             "outbounds": [{
@@ -147,7 +149,8 @@ jobs:
             "type": "none",
             "host": "",
             "path": "",
-            "tls": "none"
+            "tls": "none",
+            "flow": "xtls-rprx-vision"
           }'
           $base64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($vlessString))
           $vlessLink = "vless://$base64"
@@ -155,7 +158,7 @@ jobs:
           $vlessLink | Out-File -FilePath "C:\v2ray\vless-link.txt" -Encoding ascii
           Write-Host ""
           Write-Host "==================================================" -ForegroundColor Green
-          Write-Host "  V2RAY SERVER IS READY!" -ForegroundColor Cyan
+          Write-Host "  V2RAY (VLESS) SERVER IS READY!" -ForegroundColor Cyan
           Write-Host "==================================================" -ForegroundColor Green
           Write-Host ""
           Write-Host "  VLESS LINK:" -ForegroundColor Yellow
@@ -165,6 +168,8 @@ jobs:
           Write-Host "  IP: $tailscaleIP" -ForegroundColor Cyan
           Write-Host "  Port: 10086" -ForegroundColor Cyan
           Write-Host "  UUID: $uuid" -ForegroundColor Cyan
+          Write-Host "  Protocol: VLESS" -ForegroundColor Cyan
+          Write-Host "  Flow: xtls-rprx-vision" -ForegroundColor Cyan
           Write-Host ""
           Write-Host "  RDP ACCESS:" -ForegroundColor Yellow
           Write-Host "  IP: $tailscaleIP" -ForegroundColor Cyan
@@ -186,7 +191,7 @@ jobs:
         run: |
           Write-Host ""
           Write-Host "==================================================" -ForegroundColor Cyan
-          Write-Host "  V2RAY SERVER FULLY OPERATIONAL!" -ForegroundColor Green
+          Write-Host "  V2RAY (VLESS) SERVER FULLY OPERATIONAL!" -ForegroundColor Green
           Write-Host "==================================================" -ForegroundColor Cyan
           Write-Host ""
           Write-Host "  VLESS LINK:" -ForegroundColor Green
@@ -195,12 +200,14 @@ jobs:
           Write-Host "  Server IP: ${{ env.TAILSCALE_IP }}" -ForegroundColor Cyan
           Write-Host "  UUID: ${{ env.UUID }}" -ForegroundColor Cyan
           Write-Host "  Port: 10086" -ForegroundColor Cyan
+          Write-Host "  Protocol: VLESS" -ForegroundColor Cyan
+          Write-Host "  Flow: xtls-rprx-vision" -ForegroundColor Cyan
           Write-Host ""
           Write-Host "  RDP Access:" -ForegroundColor Yellow
           Write-Host "     Username: NvdAdmin" -ForegroundColor Cyan
           Write-Host "     Password: P@ssw0rd1qazXSW@#" -ForegroundColor Cyan
           Write-Host ""
-          Write-Host "  Server will run for 8 hours" -ForegroundColor Yellow
+          Write-Host "  Server will run for 48 hours" -ForegroundColor Yellow
           Write-Host "  Config files in artifacts" -ForegroundColor Yellow
           Write-Host ""
           Write-Host "==================================================" -ForegroundColor Cyan
@@ -208,14 +215,15 @@ jobs:
       - name: Keep Server Alive
         shell: pwsh
         run: |
-          Write-Host "Keeping server alive for 8 hours..." -ForegroundColor Yellow
+          Write-Host "Keeping server alive for 48 hours..." -ForegroundColor Yellow
           Write-Host "   Press Ctrl+C to stop early" -ForegroundColor Gray
           Write-Host ""
           for ($i = 1; $i -le 2880; $i++) {
             Start-Sleep -Seconds 60
-            if ($i % 30 -eq 0) {
+            if ($i % 60 -eq 0) {
+              $hours = [math]::Floor($i / 60)
               $timestamp = Get-Date -Format "HH:mm:ss"
-              Write-Host "[$i/480] Server running - $timestamp" -ForegroundColor Cyan
+              Write-Host "[$hours/48h] Server running - $timestamp" -ForegroundColor Cyan
               $proc = Get-Process v2ray -ErrorAction SilentlyContinue
               if ($proc) {
                   Write-Host "  V2Ray is running (PID: $($proc.Id))" -ForegroundColor Green
