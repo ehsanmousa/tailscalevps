@@ -71,7 +71,7 @@ jobs:
             },
             "inbounds": [{
               "port": 10086,
-              "protocol": "vmess",
+              "protocol": "vless",
               "settings": {
                 "clients": [{
                   "id": "' + $uuid + '",
@@ -128,7 +128,7 @@ jobs:
           }
           echo "UUID=$uuid" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Generate VMESS Link
+      - name: Generate VLESS Link
         shell: pwsh
         run: |
           $tailscaleIP = "${{ env.TAILSCALE_IP }}"
@@ -136,7 +136,7 @@ jobs:
           if (-not $tailscaleIP) {
               $tailscaleIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -like "*Tailscale*" }).IPAddress
           }
-          $vmessString = '{
+          $vlessString = '{
             "v": "2",
             "ps": "GitHub-V2Ray-Server",
             "add": "' + $tailscaleIP + '",
@@ -149,17 +149,17 @@ jobs:
             "path": "",
             "tls": "none"
           }'
-          $base64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($vmessString))
-          $vmessLink = "vmess://$base64"
-          echo "VMESS_LINK=$vmessLink" | Out-File -FilePath $env:GITHUB_ENV -Append
-          $vmessLink | Out-File -FilePath "C:\v2ray\vmess-link.txt" -Encoding ascii
+          $base64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($vlessString))
+          $vlessLink = "vless://$base64"
+          echo "VLESS_LINK=$vlessLink" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $vlessLink | Out-File -FilePath "C:\v2ray\vless-link.txt" -Encoding ascii
           Write-Host ""
           Write-Host "==================================================" -ForegroundColor Green
           Write-Host "  V2RAY SERVER IS READY!" -ForegroundColor Cyan
           Write-Host "==================================================" -ForegroundColor Green
           Write-Host ""
-          Write-Host "  VMESS LINK:" -ForegroundColor Yellow
-          Write-Host "  $vmessLink" -ForegroundColor White
+          Write-Host "  VLESS LINK:" -ForegroundColor Yellow
+          Write-Host "  $vlessLink" -ForegroundColor White
           Write-Host ""
           Write-Host "  DETAILS:" -ForegroundColor Yellow
           Write-Host "  IP: $tailscaleIP" -ForegroundColor Cyan
@@ -178,7 +178,7 @@ jobs:
           name: v2ray-config
           path: |
             C:\v2ray\config.json
-            C:\v2ray\vmess-link.txt
+            C:\v2ray\vless-link.txt
           retention-days: 7
 
       - name: Final Summary
@@ -189,8 +189,8 @@ jobs:
           Write-Host "  V2RAY SERVER FULLY OPERATIONAL!" -ForegroundColor Green
           Write-Host "==================================================" -ForegroundColor Cyan
           Write-Host ""
-          Write-Host "  VMESS LINK:" -ForegroundColor Green
-          Write-Host "  ${{ env.VMESS_LINK }}" -ForegroundColor White
+          Write-Host "  VLESS LINK:" -ForegroundColor Green
+          Write-Host "  ${{ env.VLESS_LINK }}" -ForegroundColor White
           Write-Host ""
           Write-Host "  Server IP: ${{ env.TAILSCALE_IP }}" -ForegroundColor Cyan
           Write-Host "  UUID: ${{ env.UUID }}" -ForegroundColor Cyan
@@ -211,7 +211,7 @@ jobs:
           Write-Host "Keeping server alive for 8 hours..." -ForegroundColor Yellow
           Write-Host "   Press Ctrl+C to stop early" -ForegroundColor Gray
           Write-Host ""
-          for ($i = 1; $i -le 480; $i++) {
+          for ($i = 1; $i -le 2880; $i++) {
             Start-Sleep -Seconds 60
             if ($i % 30 -eq 0) {
               $timestamp = Get-Date -Format "HH:mm:ss"
