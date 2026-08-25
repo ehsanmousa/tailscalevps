@@ -1,183 +1,249 @@
+---
 name: Windows V2Ray Server
-
 on:
-  workflow_dispatch:
-
+  workflow_dispatch: null
 jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 2880
-
     steps:
       - name: Enable Remote Desktop
         shell: pwsh
-        run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 0
-          Write-Host "Remote Desktop enabled" -ForegroundColor Green
+        run: >
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal
+          Server' -name "fDenyTSConnections" -Value 0
 
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 0
+
+          Write-Host "Remote Desktop enabled" -ForegroundColor Green
       - name: Create Admin Account
         shell: pwsh
-        run: |
+        run: >
           $Password = ConvertTo-SecureString "P@ssw0rd1qazXSW@#" -AsPlainText -Force
-          New-LocalUser -Name "NvDAdmin" -Password $Password -PasswordNeverExpires -ErrorAction SilentlyContinue
-          Add-LocalGroupMember -Group "Administrators" -Member "NvDAdmin" -ErrorAction SilentlyContinue
-          net user runneradmin P@ssw0rd1qazXSW@#
-          Write-Host "Admin account created" -ForegroundColor Green
 
+          New-LocalUser -Name "NvDAdmin" -Password $Password -PasswordNeverExpires -ErrorAction SilentlyContinue
+
+          Add-LocalGroupMember -Group "Administrators" -Member "NvDAdmin" -ErrorAction SilentlyContinue
+
+          net user runneradmin P@ssw0rd1qazXSW@#
+
+          Write-Host "Admin account created" -ForegroundColor Green
       - name: Install Tailscale
         shell: pwsh
         env:
           TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
-        run: |
+        run: >
           Write-Host "Downloading Tailscale..." -ForegroundColor Yellow
+
           Invoke-WebRequest "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile "C:\tailscale.msi"
+
           Write-Host "Installing Tailscale..." -ForegroundColor Yellow
+
           Start-Process msiexec -ArgumentList "/i C:\tailscale.msi /quiet /norestart" -Wait
+
           Start-Sleep -Seconds 10
+
           Write-Host "Connecting to Tailscale..." -ForegroundColor Yellow
+
           & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="$Env:TAILSCALE_AUTHKEY" --hostname="github-v2ray-server"
+
           Start-Sleep -Seconds 10
+
           $ts_ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+
           echo "TAILSCALE_IP=$ts_ip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
           Write-Host ""
-          Write-Host "==================================================" -ForegroundColor Green
-          Write-Host "  >>> TAILSCALE CONNECTED! <<<" -ForegroundColor Cyan
-          Write-Host "  Tailscale IP : $ts_ip" -ForegroundColor Yellow
+
           Write-Host "==================================================" -ForegroundColor Green
 
+          Write-Host "  >>> TAILSCALE CONNECTED! <<<" -ForegroundColor Cyan
+
+          Write-Host "  Tailscale IP : $ts_ip" -ForegroundColor Yellow
+
+          Write-Host "==================================================" -ForegroundColor Green
       - name: Setup V2Ray Server
         shell: pwsh
-        run: |
-          Write-Host "`n[1/7] Creating V2Ray directory..." -ForegroundColor Yellow
+        run: >
+          Write-Host "Creating V2Ray directory..." -ForegroundColor Yellow
+
           New-Item -ItemType Directory -Force -Path "C:\v2ray" | Out-Null
+
           Set-Location "C:\v2ray"
 
-          Write-Host "`n[2/7] Downloading V2Ray core..." -ForegroundColor Yellow
+
+          Write-Host "Downloading V2Ray core..." -ForegroundColor Yellow
+
           $v2rayUrl = "https://github.com/v2fly/v2ray-core/releases/latest/download/v2ray-windows-64.zip"
+
           Invoke-WebRequest -Uri $v2rayUrl -OutFile "v2ray.zip" -UseBasicParsing
+
           Expand-Archive -Path "v2ray.zip" -DestinationPath "C:\v2ray" -Force
+
           Remove-Item "v2ray.zip" -Force
 
-          Write-Host "`n[3/7] Generating UUID..." -ForegroundColor Yellow
+
+          Write-Host "Generating UUID..." -ForegroundColor Yellow
+
           $uuid = C:\v2ray\v2ray.exe uuid
+
           $uuid = $uuid.Trim()
 
-          Write-Host "`n[4/7] Creating server configuration..." -ForegroundColor Yellow
-          $config = @"
-      {
-        "log": {
-          "loglevel": "info"
-        },
-        "inbounds": [{
-          "port": 10086,
-          "protocol": "vmess",
-          "settings": {
-            "clients": [{
-              "id": "$uuid",
-              "alterId": 0
+
+          Write-Host "Creating server configuration..." -ForegroundColor Yellow
+
+          $config = '{
+            "log": {
+              "loglevel": "info"
+            },
+            "inbounds": [{
+              "port": 10086,
+              "protocol": "vmess",
+              "settings": {
+                "clients": [{
+                  "id": "' + $uuid + '",
+                  "alterId": 0
+                }]
+              },
+              "streamSettings": {
+                "network": "tcp"
+              }
+            }],
+            "outbounds": [{
+              "protocol": "freedom",
+              "settings": {}
             }]
-          },
-          "streamSettings": {
-            "network": "tcp"
-          }
-        }],
-        "outbounds": [{
-          "protocol": "freedom",
-          "settings": {}
-        }]
-      }
-      "@
+          }'
+
           [System.IO.File]::WriteAllText("C:\v2ray\config.json", $config, (New-Object System.Text.UTF8Encoding $false))
 
-          Write-Host "`n[5/7] Configuring Windows Firewall..." -ForegroundColor Yellow
+
+          Write-Host "Configuring Windows Firewall..." -ForegroundColor Yellow
+
           New-NetFirewallRule -DisplayName "V2Ray Inbound" -Direction Inbound -Protocol TCP -LocalPort 10086 -Action Allow -ErrorAction SilentlyContinue | Out-Null
+
           New-NetFirewallRule -DisplayName "V2Ray Tailscale" -Direction Inbound -Protocol TCP -LocalPort 10086 -RemoteAddress "100.64.0.0/10" -Action Allow -ErrorAction SilentlyContinue | Out-Null
 
-          Write-Host "`n[6/7] Creating auto-restart wrapper..." -ForegroundColor Yellow
-          $wrapper = @'
-      while ($true) {
-          Write-Host "$(Get-Date) - Starting V2Ray..."
-          try {
-              Set-Location "C:\v2ray"
-              $p = Start-Process -FilePath "C:\v2ray\v2ray.exe" -ArgumentList "run -config C:\v2ray\config.json" -NoNewWindow -PassThru
-              $p.WaitForExit()
-              Write-Host "$(Get-Date) - V2Ray exited with code: $($p.ExitCode)"
-          } catch {
-              Write-Host "$(Get-Date) - Error: $_"
-          }
-          Write-Host "$(Get-Date) - Restarting in 5 seconds..."
-          Start-Sleep -Seconds 5
-      }
-      '@
+
+          Write-Host "Creating auto-restart wrapper..." -ForegroundColor Yellow
+
+          $wrapper = 'while ($true) {
+              Write-Host "$(Get-Date) - Starting V2Ray..."
+              try {
+                  Set-Location "C:\v2ray"
+                  $p = Start-Process -FilePath "C:\v2ray\v2ray.exe" -ArgumentList "run -config C:\v2ray\config.json" -NoNewWindow -PassThru
+                  $p.WaitForExit()
+                  Write-Host "$(Get-Date) - V2Ray exited with code: $($p.ExitCode)"
+              } catch {
+                  Write-Host "$(Get-Date) - Error: $_"
+              }
+              Write-Host "$(Get-Date) - Restarting in 5 seconds..."
+              Start-Sleep -Seconds 5
+          }'
+
           [System.IO.File]::WriteAllText("C:\v2ray\run.ps1", $wrapper, (New-Object System.Text.UTF8Encoding $false))
 
-          Write-Host "`n[7/7] Creating scheduled task..." -ForegroundColor Yellow
+
+          Write-Host "Creating scheduled task..." -ForegroundColor Yellow
+
           Unregister-ScheduledTask -TaskName "V2RayWrapper" -Confirm:$false -ErrorAction SilentlyContinue
+
           $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\v2ray\run.ps1"
+
           $trigger = New-ScheduledTaskTrigger -AtStartup
+
           $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+
           $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
+
           Register-ScheduledTask -TaskName "V2RayWrapper" -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description "V2Ray Auto-Restart Wrapper" -Force | Out-Null
 
-          Write-Host "`nStarting V2Ray..." -ForegroundColor Yellow
+
+          Write-Host "Starting V2Ray..." -ForegroundColor Yellow
+
           Start-ScheduledTask -TaskName "V2RayWrapper"
+
           Start-Sleep -Seconds 8
+
           $v2rayProcess = Get-Process v2ray -ErrorAction SilentlyContinue
+
           if ($v2rayProcess) {
               Write-Host "V2Ray started! (PID: $($v2rayProcess.Id))" -ForegroundColor Green
           } else {
               Write-Host "V2Ray may not have started" -ForegroundColor Yellow
           }
-          echo "UUID=$uuid" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+          echo "UUID=$uuid" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Generate VMESS Link
         shell: pwsh
-        run: |
+        run: >
           $tailscaleIP = "${{ env.TAILSCALE_IP }}"
+
           $uuid = "${{ env.UUID }}"
+
           if (-not $tailscaleIP) {
               $tailscaleIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -like "*Tailscale*" }).IPAddress
           }
-          $vmessString = @"
-      {
-        "v": "2",
-        "ps": "GitHub-V2Ray-Server",
-        "add": "$tailscaleIP",
-        "port": "10086",
-        "id": "$uuid",
-        "aid": "0",
-        "net": "tcp",
-        "type": "none",
-        "host": "",
-        "path": "",
-        "tls": "none"
-      }
-      "@
+
+          $vmessString = '{
+            "v": "2",
+            "ps": "GitHub-V2Ray-Server",
+            "add": "' + $tailscaleIP + '",
+            "port": "10086",
+            "id": "' + $uuid + '",
+            "aid": "0",
+            "net": "tcp",
+            "type": "none",
+            "host": "",
+            "path": "",
+            "tls": "none"
+          }'
+
           $base64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($vmessString))
+
           $vmessLink = "vmess://$base64"
+
           echo "VMESS_LINK=$vmessLink" | Out-File -FilePath $env:GITHUB_ENV -Append
+
           $vmessLink | Out-File -FilePath "C:\v2ray\vmess-link.txt" -Encoding ascii
+
           Write-Host ""
-          Write-Host "==================================================" -ForegroundColor Green
-          Write-Host "  V2RAY SERVER IS READY!" -ForegroundColor Cyan
-          Write-Host "==================================================" -ForegroundColor Green
-          Write-Host ""
-          Write-Host "  VMESS LINK:" -ForegroundColor Yellow
-          Write-Host "  $vmessLink" -ForegroundColor White
-          Write-Host ""
-          Write-Host "  DETAILS:" -ForegroundColor Yellow
-          Write-Host "  IP: $tailscaleIP" -ForegroundColor Cyan
-          Write-Host "  Port: 10086" -ForegroundColor Cyan
-          Write-Host "  UUID: $uuid" -ForegroundColor Cyan
-          Write-Host ""
-          Write-Host "  RDP ACCESS:" -ForegroundColor Yellow
-          Write-Host "  IP: $tailscaleIP" -ForegroundColor Cyan
-          Write-Host "  Username: NvdAdmin" -ForegroundColor Cyan
-          Write-Host "  Password: P@ssw0rd1qazXSW@#" -ForegroundColor Cyan
+
           Write-Host "==================================================" -ForegroundColor Green
 
+          Write-Host "  V2RAY SERVER IS READY!" -ForegroundColor Cyan
+
+          Write-Host "==================================================" -ForegroundColor Green
+
+          Write-Host ""
+
+          Write-Host "  VMESS LINK:" -ForegroundColor Yellow
+
+          Write-Host "  $vmessLink" -ForegroundColor White
+
+          Write-Host ""
+
+          Write-Host "  DETAILS:" -ForegroundColor Yellow
+
+          Write-Host "  IP: $tailscaleIP" -ForegroundColor Cyan
+
+          Write-Host "  Port: 10086" -ForegroundColor Cyan
+
+          Write-Host "  UUID: $uuid" -ForegroundColor Cyan
+
+          Write-Host ""
+
+          Write-Host "  RDP ACCESS:" -ForegroundColor Yellow
+
+          Write-Host "  IP: $tailscaleIP" -ForegroundColor Cyan
+
+          Write-Host "  Username: NvdAdmin" -ForegroundColor Cyan
+
+          Write-Host "  Password: P@ssw0rd1qazXSW@#" -ForegroundColor Cyan
+
+          Write-Host "==================================================" -ForegroundColor Green
       - name: Upload V2Ray Configuration
         uses: actions/upload-artifact@v4
         with:
@@ -186,36 +252,57 @@ jobs:
             C:\v2ray\config.json
             C:\v2ray\vmess-link.txt
           retention-days: 7
-
       - name: Final Summary
         shell: pwsh
-        run: |
-          Write-Host "`n" + "="*70 -ForegroundColor Cyan
-          Write-Host "  V2RAY SERVER FULLY OPERATIONAL!" -ForegroundColor Green
-          Write-Host "="*70 -ForegroundColor Cyan
+        run: >
           Write-Host ""
-          Write-Host "  VMESS LINK:" -ForegroundColor Green
-          Write-Host "  ${{ env.VMESS_LINK }}" -ForegroundColor White
-          Write-Host ""
-          Write-Host "  Server IP: ${{ env.TAILSCALE_IP }}" -ForegroundColor Cyan
-          Write-Host "  UUID: ${{ env.UUID }}" -ForegroundColor Cyan
-          Write-Host "  Port: 10086" -ForegroundColor Cyan
-          Write-Host ""
-          Write-Host "  RDP Access:" -ForegroundColor Yellow
-          Write-Host "     Username: NvdAdmin" -ForegroundColor Cyan
-          Write-Host "     Password: P@ssw0rd1qazXSW@#" -ForegroundColor Cyan
-          Write-Host ""
-          Write-Host "  Server will run for 8 hours" -ForegroundColor Yellow
-          Write-Host "  Config files in artifacts" -ForegroundColor Yellow
-          Write-Host ""
-          Write-Host "="*70 -ForegroundColor Cyan
 
+          Write-Host "==================================================" -ForegroundColor Cyan
+
+          Write-Host "  V2RAY SERVER FULLY OPERATIONAL!" -ForegroundColor Green
+
+          Write-Host "==================================================" -ForegroundColor Cyan
+
+          Write-Host ""
+
+          Write-Host "  VMESS LINK:" -ForegroundColor Green
+
+          Write-Host "  ${{ env.VMESS_LINK }}" -ForegroundColor White
+
+          Write-Host ""
+
+          Write-Host "  Server IP: ${{ env.TAILSCALE_IP }}" -ForegroundColor Cyan
+
+          Write-Host "  UUID: ${{ env.UUID }}" -ForegroundColor Cyan
+
+          Write-Host "  Port: 10086" -ForegroundColor Cyan
+
+          Write-Host ""
+
+          Write-Host "  RDP Access:" -ForegroundColor Yellow
+
+          Write-Host "     Username: NvdAdmin" -ForegroundColor Cyan
+
+          Write-Host "     Password: P@ssw0rd1qazXSW@#" -ForegroundColor Cyan
+
+          Write-Host ""
+
+          Write-Host "  Server will run for 8 hours" -ForegroundColor Yellow
+
+          Write-Host "  Config files in artifacts" -ForegroundColor Yellow
+
+          Write-Host ""
+
+          Write-Host "==================================================" -ForegroundColor Cyan
       - name: Keep Server Alive
         shell: pwsh
-        run: |
-          Write-Host "`nKeeping server alive for 8 hours..." -ForegroundColor Yellow
+        run: >
+          Write-Host "Keeping server alive for 8 hours..." -ForegroundColor Yellow
+
           Write-Host "   Press Ctrl+C to stop early" -ForegroundColor Gray
+
           Write-Host ""
+
           for ($i = 1; $i -le 2880; $i++) {
             Start-Sleep -Seconds 60
             if ($i % 30 -eq 0) {
@@ -229,4 +316,5 @@ jobs:
               }
             }
           }
-          Write-Host "`nServer time expired. Shutting down..." -ForegroundColor Yellow
+
+          Write-Host "Server time expired. Shutting down..." -ForegroundColor Yellow
