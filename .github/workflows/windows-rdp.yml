@@ -138,7 +138,15 @@ jobs:
           if (-not $tailscaleIP) {
               $tailscaleIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -like "*Tailscale*" }).IPAddress
           }
-          $vlessString = '{
+          
+          # Generate proper VLESS URI format
+          $vlessLink = "vless://$uuid@$tailscaleIP`:10086?flow=xtls-rprx-vision&encryption=none&security=none&type=tcp#GitHub-V2Ray-Server"
+          
+          echo "VLESS_LINK=$vlessLink" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $vlessLink | Out-File -FilePath "C:\v2ray\vless-link.txt" -Encoding ascii
+          
+          # Also generate QR code compatible format (for clients that prefer JSON)
+          $vlessJson = '{
             "v": "2",
             "ps": "GitHub-V2Ray-Server",
             "add": "' + $tailscaleIP + '",
@@ -152,26 +160,31 @@ jobs:
             "tls": "none",
             "flow": "xtls-rprx-vision"
           }'
-          $base64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($vlessString))
-          $vlessLink = "vless://$base64"
-          echo "VLESS_LINK=$vlessLink" | Out-File -FilePath $env:GITHUB_ENV -Append
-          $vlessLink | Out-File -FilePath "C:\v2ray\vless-link.txt" -Encoding ascii
+          $base64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($vlessJson))
+          $vlessJsonLink = "vless://$base64"
+          
           Write-Host ""
           Write-Host "==================================================" -ForegroundColor Green
           Write-Host "  V2RAY (VLESS) SERVER IS READY!" -ForegroundColor Cyan
           Write-Host "==================================================" -ForegroundColor Green
           Write-Host ""
-          Write-Host "  VLESS LINK:" -ForegroundColor Yellow
+          Write-Host "  ✅ VLESS LINK (Copy this into your client):" -ForegroundColor Yellow
           Write-Host "  $vlessLink" -ForegroundColor White
           Write-Host ""
-          Write-Host "  DETAILS:" -ForegroundColor Yellow
+          Write-Host "  Alternative VLESS Link (JSON format):" -ForegroundColor Yellow
+          Write-Host "  $vlessJsonLink" -ForegroundColor Gray
+          Write-Host ""
+          Write-Host "  📋 DETAILS:" -ForegroundColor Yellow
           Write-Host "  IP: $tailscaleIP" -ForegroundColor Cyan
           Write-Host "  Port: 10086" -ForegroundColor Cyan
           Write-Host "  UUID: $uuid" -ForegroundColor Cyan
           Write-Host "  Protocol: VLESS" -ForegroundColor Cyan
           Write-Host "  Flow: xtls-rprx-vision" -ForegroundColor Cyan
+          Write-Host "  Encryption: none" -ForegroundColor Cyan
+          Write-Host "  Security: none" -ForegroundColor Cyan
+          Write-Host "  Network: tcp" -ForegroundColor Cyan
           Write-Host ""
-          Write-Host "  RDP ACCESS:" -ForegroundColor Yellow
+          Write-Host "  💻 RDP ACCESS:" -ForegroundColor Yellow
           Write-Host "  IP: $tailscaleIP" -ForegroundColor Cyan
           Write-Host "  Username: NvdAdmin" -ForegroundColor Cyan
           Write-Host "  Password: P@ssw0rd1qazXSW@#" -ForegroundColor Cyan
@@ -194,21 +207,24 @@ jobs:
           Write-Host "  V2RAY (VLESS) SERVER FULLY OPERATIONAL!" -ForegroundColor Green
           Write-Host "==================================================" -ForegroundColor Cyan
           Write-Host ""
-          Write-Host "  VLESS LINK:" -ForegroundColor Green
+          Write-Host "  ✅ VLESS LINK (Copy this into your client):" -ForegroundColor Green
           Write-Host "  ${{ env.VLESS_LINK }}" -ForegroundColor White
           Write-Host ""
+          Write-Host "  📋 SERVER DETAILS:" -ForegroundColor Yellow
           Write-Host "  Server IP: ${{ env.TAILSCALE_IP }}" -ForegroundColor Cyan
           Write-Host "  UUID: ${{ env.UUID }}" -ForegroundColor Cyan
           Write-Host "  Port: 10086" -ForegroundColor Cyan
           Write-Host "  Protocol: VLESS" -ForegroundColor Cyan
           Write-Host "  Flow: xtls-rprx-vision" -ForegroundColor Cyan
+          Write-Host "  Encryption: none" -ForegroundColor Cyan
+          Write-Host "  Network: tcp" -ForegroundColor Cyan
           Write-Host ""
-          Write-Host "  RDP Access:" -ForegroundColor Yellow
+          Write-Host "  💻 RDP ACCESS:" -ForegroundColor Yellow
           Write-Host "     Username: NvdAdmin" -ForegroundColor Cyan
           Write-Host "     Password: P@ssw0rd1qazXSW@#" -ForegroundColor Cyan
           Write-Host ""
-          Write-Host "  Server will run for 48 hours" -ForegroundColor Yellow
-          Write-Host "  Config files in artifacts" -ForegroundColor Yellow
+          Write-Host "  ⏱️  Server will run for 48 hours" -ForegroundColor Yellow
+          Write-Host "  📁 Config files in artifacts" -ForegroundColor Yellow
           Write-Host ""
           Write-Host "==================================================" -ForegroundColor Cyan
 
