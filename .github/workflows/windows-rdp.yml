@@ -139,50 +139,62 @@ jobs:
               $tailscaleIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -like "*Tailscale*" }).IPAddress
           }
           
-          # Generate proper VLESS URI format
+          # Generate VLESS link with proper URL encoding
           $vlessLink = "vless://$uuid@$tailscaleIP`:10086?flow=xtls-rprx-vision&encryption=none&security=none&type=tcp#GitHub-V2Ray-Server"
           
-          echo "VLESS_LINK=$vlessLink" | Out-File -FilePath $env:GITHUB_ENV -Append
-          $vlessLink | Out-File -FilePath "C:\v2ray\vless-link.txt" -Encoding ascii
+          # Alternative format without "security=none" (some clients don't like it)
+          $vlessLinkAlt = "vless://$uuid@$tailscaleIP`:10086?flow=xtls-rprx-vision&encryption=none&type=tcp#GitHub-V2Ray-Server"
           
-          # Also generate QR code compatible format (for clients that prefer JSON)
-          $vlessJson = '{
-            "v": "2",
-            "ps": "GitHub-V2Ray-Server",
-            "add": "' + $tailscaleIP + '",
-            "port": "10086",
-            "id": "' + $uuid + '",
-            "aid": "0",
-            "net": "tcp",
-            "type": "none",
-            "host": "",
-            "path": "",
-            "tls": "none",
-            "flow": "xtls-rprx-vision"
-          }'
+          # JSON format for v2rayN
+          $vlessJson = @"
+      {
+        "v": "2",
+        "ps": "GitHub-V2Ray-Server",
+        "add": "$tailscaleIP",
+        "port": "10086",
+        "id": "$uuid",
+        "aid": "0",
+        "net": "tcp",
+        "type": "none",
+        "host": "",
+        "path": "",
+        "tls": "none",
+        "flow": "xtls-rprx-vision",
+        "scy": "none"
+      }
+      "@
           $base64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($vlessJson))
           $vlessJsonLink = "vless://$base64"
+          
+          echo "VLESS_LINK=$vlessLink" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "VLESS_LINK_ALT=$vlessLinkAlt" | Out-File -FilePath $env:GITHUB_ENV -Append
+          
+          $vlessLink | Out-File -FilePath "C:\v2ray\vless-link.txt" -Encoding ascii
+          $vlessLinkAlt | Out-File -FilePath "C:\v2ray\vless-link-alt.txt" -Encoding ascii
           
           Write-Host ""
           Write-Host "==================================================" -ForegroundColor Green
           Write-Host "  V2RAY (VLESS) SERVER IS READY!" -ForegroundColor Cyan
           Write-Host "==================================================" -ForegroundColor Green
           Write-Host ""
-          Write-Host "  ✅ VLESS LINK (Copy this into your client):" -ForegroundColor Yellow
+          Write-Host "  ✅ VLESS LINK (Try this first):" -ForegroundColor Yellow
           Write-Host "  $vlessLink" -ForegroundColor White
           Write-Host ""
-          Write-Host "  Alternative VLESS Link (JSON format):" -ForegroundColor Yellow
+          Write-Host "  ✅ VLESS LINK (Alternative - without security=none):" -ForegroundColor Yellow
+          Write-Host "  $vlessLinkAlt" -ForegroundColor White
+          Write-Host ""
+          Write-Host "  ✅ VLESS LINK (JSON format - for v2rayN):" -ForegroundColor Yellow
           Write-Host "  $vlessJsonLink" -ForegroundColor Gray
           Write-Host ""
-          Write-Host "  📋 DETAILS:" -ForegroundColor Yellow
-          Write-Host "  IP: $tailscaleIP" -ForegroundColor Cyan
+          Write-Host "  📋 MANUAL CONFIGURATION:" -ForegroundColor Yellow
+          Write-Host "  Address: $tailscaleIP" -ForegroundColor Cyan
           Write-Host "  Port: 10086" -ForegroundColor Cyan
           Write-Host "  UUID: $uuid" -ForegroundColor Cyan
           Write-Host "  Protocol: VLESS" -ForegroundColor Cyan
           Write-Host "  Flow: xtls-rprx-vision" -ForegroundColor Cyan
           Write-Host "  Encryption: none" -ForegroundColor Cyan
-          Write-Host "  Security: none" -ForegroundColor Cyan
           Write-Host "  Network: tcp" -ForegroundColor Cyan
+          Write-Host "  Security: none" -ForegroundColor Cyan
           Write-Host ""
           Write-Host "  💻 RDP ACCESS:" -ForegroundColor Yellow
           Write-Host "  IP: $tailscaleIP" -ForegroundColor Cyan
@@ -197,6 +209,7 @@ jobs:
           path: |
             C:\v2ray\config.json
             C:\v2ray\vless-link.txt
+            C:\v2ray\vless-link-alt.txt
           retention-days: 7
 
       - name: Final Summary
@@ -210,7 +223,10 @@ jobs:
           Write-Host "  ✅ VLESS LINK (Copy this into your client):" -ForegroundColor Green
           Write-Host "  ${{ env.VLESS_LINK }}" -ForegroundColor White
           Write-Host ""
-          Write-Host "  📋 SERVER DETAILS:" -ForegroundColor Yellow
+          Write-Host "  ✅ Alternative VLESS LINK:" -ForegroundColor Green
+          Write-Host "  ${{ env.VLESS_LINK_ALT }}" -ForegroundColor White
+          Write-Host ""
+          Write-Host "  📋 MANUAL CONFIGURATION:" -ForegroundColor Yellow
           Write-Host "  Server IP: ${{ env.TAILSCALE_IP }}" -ForegroundColor Cyan
           Write-Host "  UUID: ${{ env.UUID }}" -ForegroundColor Cyan
           Write-Host "  Port: 10086" -ForegroundColor Cyan
@@ -218,6 +234,7 @@ jobs:
           Write-Host "  Flow: xtls-rprx-vision" -ForegroundColor Cyan
           Write-Host "  Encryption: none" -ForegroundColor Cyan
           Write-Host "  Network: tcp" -ForegroundColor Cyan
+          Write-Host "  Security: none" -ForegroundColor Cyan
           Write-Host ""
           Write-Host "  💻 RDP ACCESS:" -ForegroundColor Yellow
           Write-Host "     Username: NvdAdmin" -ForegroundColor Cyan
