@@ -297,7 +297,7 @@ jobs:
       - name: Keep Server Alive
         shell: pwsh
         run: >
-          Write-Host "Keeping server alive for 8 hours..." -ForegroundColor Yellow
+          Write-Host "Keeping server alive for 48 hours..." -ForegroundColor Yellow
 
           Write-Host "   Press Ctrl+C to stop early" -ForegroundColor Gray
 
