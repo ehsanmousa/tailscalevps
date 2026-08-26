@@ -287,7 +287,7 @@ jobs:
 
           Write-Host ""
 
-          Write-Host "  Server will run for 8 hours" -ForegroundColor Yellow
+          Write-Host "  Server will run for 48 hours" -ForegroundColor Yellow
 
           Write-Host "  Config files in artifacts" -ForegroundColor Yellow
 
