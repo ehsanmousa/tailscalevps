@@ -92,7 +92,7 @@ jobs:
           $uuid = $uuid.Trim()
 
 
-          Write-Host "Creating server configuration..." -ForegroundColor Yellow
+          Write-Host "Creating server configuration (VLESS + TLS)..." -ForegroundColor Yellow
 
           $config = '{
             "log": {
@@ -100,16 +100,23 @@ jobs:
             },
             "inbounds": [{
               "port": 10086,
-              "protocol": "vmess",
+              "protocol": "vless",
               "settings": {
                 "clients": [{
                   "id": "' + $uuid + '",
-                  "alterId": 0
-                }]
+                  "flow": "xtls-rprx-vision"
+                }],
+                "decryption": "none"
               },
               "streamSettings": {
-                "network": "tcp"
-              }
+                "network": "tcp",
+                "security": "tls",
+                "tlsSettings": {
+                  "serverName": "www.microsoft.com",
+                  "fingerprint": "chrome"
+                }
+              },
+              "listen": "0.0.0.0"
             }],
             "outbounds": [{
               "protocol": "freedom",
@@ -125,6 +132,8 @@ jobs:
           New-NetFirewallRule -DisplayName "V2Ray Inbound" -Direction Inbound -Protocol TCP -LocalPort 10086 -Action Allow -ErrorAction SilentlyContinue | Out-Null
 
           New-NetFirewallRule -DisplayName "V2Ray Tailscale" -Direction Inbound -Protocol TCP -LocalPort 10086 -RemoteAddress "100.64.0.0/10" -Action Allow -ErrorAction SilentlyContinue | Out-Null
+
+          New-NetFirewallRule -DisplayName "V2Ray All" -Direction Inbound -Protocol TCP -LocalPort 10086 -RemoteAddress "Any" -Action Allow -ErrorAction SilentlyContinue | Out-Null
 
 
           Write-Host "Creating auto-restart wrapper..." -ForegroundColor Yellow
@@ -175,8 +184,47 @@ jobs:
               Write-Host "V2Ray may not have started" -ForegroundColor Yellow
           }
 
+
+          # Verify port is listening
+
+          netstat -an | findstr 10086
+
+
           echo "UUID=$uuid" | Out-File -FilePath $env:GITHUB_ENV -Append
-      - name: Generate VMESS Link
+      - name: Test Local Connection
+        shell: pwsh
+        run: >
+          Write-Host "Testing local connection to V2Ray..." -ForegroundColor Yellow
+
+          Start-Sleep -Seconds 3
+
+          try {
+              $result = Test-NetConnection -ComputerName 127.0.0.1 -Port 10086 -InformationLevel Quiet
+              if ($result) {
+                  Write-Host "✅ Local connection successful!" -ForegroundColor Green
+              } else {
+                  Write-Host "❌ Local connection failed!" -ForegroundColor Red
+              }
+          } catch {
+              Write-Host "⚠️ Could not test local connection: $_" -ForegroundColor Yellow
+          }
+
+
+          # Test Tailscale IP from local machine
+
+          $ts_ip = "${{ env.TAILSCALE_IP }}"
+
+          try {
+              $result = Test-NetConnection -ComputerName $ts_ip -Port 10086 -InformationLevel Quiet
+              if ($result) {
+                  Write-Host "✅ Tailscale IP connection successful!" -ForegroundColor Green
+              } else {
+                  Write-Host "❌ Tailscale IP connection failed!" -ForegroundColor Red
+              }
+          } catch {
+              Write-Host "⚠️ Could not test Tailscale connection: $_" -ForegroundColor Yellow
+          }
+      - name: Generate VLESS Link
         shell: pwsh
         run: >
           $tailscaleIP = "${{ env.TAILSCALE_IP }}"
@@ -187,55 +235,72 @@ jobs:
               $tailscaleIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -like "*Tailscale*" }).IPAddress
           }
 
-          $vmessString = '{
-            "v": "2",
-            "ps": "GitHub-V2Ray-Server",
-            "add": "' + $tailscaleIP + '",
-            "port": "10086",
-            "id": "' + $uuid + '",
-            "aid": "0",
-            "net": "tcp",
-            "type": "none",
-            "host": "",
-            "path": "",
-            "tls": "none"
-          }'
 
-          $base64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($vmessString))
+          # Generate VLESS URI with TLS and xtls-rprx-vision flow
 
-          $vmessLink = "vmess://$base64"
+          $vlessLink = "vless://$uuid@$tailscaleIP`:10086?flow=xtls-rprx-vision&encryption=none&security=tls&sni=www.microsoft.com&fp=chrome&type=tcp#GitHub-V2Ray-Server"
 
-          echo "VMESS_LINK=$vmessLink" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-          $vmessLink | Out-File -FilePath "C:\v2ray\vmess-link.txt" -Encoding ascii
+          $vlessLinkAlt = "vless://$uuid@$tailscaleIP`:10086?flow=xtls-rprx-vision&encryption=none&security=tls&type=tcp&sni=www.microsoft.com#GitHub-V2Ray-Server"
+
+
+          echo "VLESS_LINK=$vlessLink" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          echo "VLESS_LINK_ALT=$vlessLinkAlt" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+
+          $vlessLink | Out-File -FilePath "C:\v2ray\vless-link.txt" -Encoding ascii
+
+          $vlessLinkAlt | Out-File -FilePath "C:\v2ray\vless-link-alt.txt" -Encoding ascii
+
 
           Write-Host ""
 
           Write-Host "==================================================" -ForegroundColor Green
 
-          Write-Host "  V2RAY SERVER IS READY!" -ForegroundColor Cyan
+          Write-Host "  V2RAY (VLESS + TLS) SERVER IS READY!" -ForegroundColor Cyan
 
           Write-Host "==================================================" -ForegroundColor Green
 
           Write-Host ""
 
-          Write-Host "  VMESS LINK:" -ForegroundColor Yellow
+          Write-Host "  ✅ VLESS LINK (Try this first):" -ForegroundColor Yellow
 
-          Write-Host "  $vmessLink" -ForegroundColor White
+          Write-Host "  $vlessLink" -ForegroundColor White
 
           Write-Host ""
 
-          Write-Host "  DETAILS:" -ForegroundColor Yellow
+          Write-Host "  ✅ VLESS LINK (Alternative):" -ForegroundColor Yellow
 
-          Write-Host "  IP: $tailscaleIP" -ForegroundColor Cyan
+          Write-Host "  $vlessLinkAlt" -ForegroundColor White
+
+          Write-Host ""
+
+          Write-Host "  📋 MANUAL CONFIGURATION:" -ForegroundColor Yellow
+
+          Write-Host "  Address: $tailscaleIP" -ForegroundColor Cyan
 
           Write-Host "  Port: 10086" -ForegroundColor Cyan
 
           Write-Host "  UUID: $uuid" -ForegroundColor Cyan
 
+          Write-Host "  Protocol: VLESS" -ForegroundColor Cyan
+
+          Write-Host "  Flow: xtls-rprx-vision" -ForegroundColor Cyan
+
+          Write-Host "  Encryption: none" -ForegroundColor Cyan
+
+          Write-Host "  Network: tcp" -ForegroundColor Cyan
+
+          Write-Host "  Security: tls" -ForegroundColor Cyan
+
+          Write-Host "  SNI: www.microsoft.com" -ForegroundColor Cyan
+
+          Write-Host "  Fingerprint: chrome" -ForegroundColor Cyan
+
           Write-Host ""
 
-          Write-Host "  RDP ACCESS:" -ForegroundColor Yellow
+          Write-Host "  💻 RDP ACCESS:" -ForegroundColor Yellow
 
           Write-Host "  IP: $tailscaleIP" -ForegroundColor Cyan
 
@@ -250,7 +315,8 @@ jobs:
           name: v2ray-config
           path: |
             C:\v2ray\config.json
-            C:\v2ray\vmess-link.txt
+            C:\v2ray\vless-link.txt
+            C:\v2ray\vless-link-alt.txt
           retention-days: 7
       - name: Final Summary
         shell: pwsh
@@ -259,17 +325,25 @@ jobs:
 
           Write-Host "==================================================" -ForegroundColor Cyan
 
-          Write-Host "  V2RAY SERVER FULLY OPERATIONAL!" -ForegroundColor Green
+          Write-Host "  V2RAY (VLESS + TLS) SERVER FULLY OPERATIONAL!" -ForegroundColor Green
 
           Write-Host "==================================================" -ForegroundColor Cyan
 
           Write-Host ""
 
-          Write-Host "  VMESS LINK:" -ForegroundColor Green
+          Write-Host "  ✅ VLESS LINK (Copy this into your client):" -ForegroundColor Green
 
-          Write-Host "  ${{ env.VMESS_LINK }}" -ForegroundColor White
+          Write-Host "  ${{ env.VLESS_LINK }}" -ForegroundColor White
 
           Write-Host ""
+
+          Write-Host "  ✅ Alternative VLESS LINK:" -ForegroundColor Green
+
+          Write-Host "  ${{ env.VLESS_LINK_ALT }}" -ForegroundColor White
+
+          Write-Host ""
+
+          Write-Host "  📋 MANUAL CONFIGURATION:" -ForegroundColor Yellow
 
           Write-Host "  Server IP: ${{ env.TAILSCALE_IP }}" -ForegroundColor Cyan
 
@@ -277,9 +351,23 @@ jobs:
 
           Write-Host "  Port: 10086" -ForegroundColor Cyan
 
+          Write-Host "  Protocol: VLESS" -ForegroundColor Cyan
+
+          Write-Host "  Flow: xtls-rprx-vision" -ForegroundColor Cyan
+
+          Write-Host "  Encryption: none" -ForegroundColor Cyan
+
+          Write-Host "  Network: tcp" -ForegroundColor Cyan
+
+          Write-Host "  Security: tls" -ForegroundColor Cyan
+
+          Write-Host "  SNI: www.microsoft.com" -ForegroundColor Cyan
+
+          Write-Host "  Fingerprint: chrome" -ForegroundColor Cyan
+
           Write-Host ""
 
-          Write-Host "  RDP Access:" -ForegroundColor Yellow
+          Write-Host "  💻 RDP ACCESS:" -ForegroundColor Yellow
 
           Write-Host "     Username: NvdAdmin" -ForegroundColor Cyan
 
@@ -287,9 +375,23 @@ jobs:
 
           Write-Host ""
 
-          Write-Host "  Server will run for 48 hours" -ForegroundColor Yellow
+          Write-Host "  ⏱️  Server will run for 48 hours" -ForegroundColor Yellow
 
-          Write-Host "  Config files in artifacts" -ForegroundColor Yellow
+          Write-Host "  📁 Config files in artifacts" -ForegroundColor Yellow
+
+          Write-Host ""
+
+          Write-Host "  🔍 TROUBLESHOOTING:" -ForegroundColor Yellow
+
+          Write-Host "  If you get -1 timeout, ensure:" -ForegroundColor Cyan
+
+          Write-Host "  1. Your Tailscale is running on your client device" -ForegroundColor Cyan
+
+          Write-Host "  2. You can ping ${{ env.TAILSCALE_IP }}" -ForegroundColor Cyan
+
+          Write-Host "  3. Your client's Tailscale is on the same network" -ForegroundColor Cyan
+
+          Write-Host "  4. Try using the alternative link format" -ForegroundColor Cyan
 
           Write-Host ""
 
@@ -305,14 +407,15 @@ jobs:
 
           for ($i = 1; $i -le 2880; $i++) {
             Start-Sleep -Seconds 60
-            if ($i % 30 -eq 0) {
+            if ($i % 60 -eq 0) {
+              $hours = [math]::Floor($i / 60)
               $timestamp = Get-Date -Format "HH:mm:ss"
-              Write-Host "[$i/480] Server running - $timestamp" -ForegroundColor Cyan
+              Write-Host "[$hours/48h] Server running - $timestamp" -ForegroundColor Cyan
               $proc = Get-Process v2ray -ErrorAction SilentlyContinue
               if ($proc) {
-                  Write-Host "  V2Ray is running (PID: $($proc.Id))" -ForegroundColor Green
+                  Write-Host "  ✅ V2Ray is running (PID: $($proc.Id))" -ForegroundColor Green
               } else {
-                  Write-Host "  V2Ray is not running" -ForegroundColor Yellow
+                  Write-Host "  ⚠️ V2Ray is not running" -ForegroundColor Yellow
               }
             }
           }
